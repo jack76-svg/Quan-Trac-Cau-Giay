@@ -6,7 +6,7 @@ import pandas as pd
 import os
 import time      
 import random    
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time as dt_time, timedelta, timezone # Khai báo thêm timezone
 
 # --- CẤU HÌNH TELEGRAM ---
 TELEGRAM_TOKEN = "8752315179:AAEMeMcS9FizpK6zEIpw_DWJ7rCznlB0MMY"
@@ -33,6 +33,10 @@ if not os.path.exists(DATA_FILE):
     df_init = pd.DataFrame(columns=["ThoiGian", "Tag", "GiaTri"])
     df_init.to_csv(DATA_FILE, index=False)
 
+def get_vietnam_time():
+    """Hàm lấy thời gian chuẩn xác theo múi giờ Việt Nam (GMT+7)"""
+    return datetime.now(timezone(timedelta(hours=7)))
+
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
@@ -42,7 +46,7 @@ def send_telegram_message(message):
         pass 
 
 def on_connect(client, userdata, flags, rc, properties=None):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Đã kết nối MQTT thành công!")
+    print(f"[{get_vietnam_time().strftime('%H:%M:%S')}] Đã kết nối MQTT thành công!")
     client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
@@ -54,21 +58,19 @@ def on_message(client, userdata, msg):
             for item in data["d"]:
                 tag_name = item["tag"]
                 
-                # Tra cứu tag trong từ điển
                 if tag_name in CAU_HINH_TAG: 
                     gia_tri = float(item["value"])
-                    thoi_gian = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    # 1. Lưu dữ liệu mới vào file CSV
+                    # SỬ DỤNG GIỜ VIỆT NAM ĐỂ GHI VÀO FILE
+                    thoi_gian = get_vietnam_time().strftime("%Y-%m-%d %H:%M:%S")
+                    
                     new_data = pd.DataFrame({"ThoiGian": [thoi_gian], "Tag": [tag_name], "GiaTri": [gia_tri]})
                     new_data.to_csv(DATA_FILE, mode='a', header=False, index=False)
                     
-                    # 2. Xử lý logic cảnh báo với tin nhắn đã được tùy chỉnh
                     ten_chi_so = CAU_HINH_TAG[tag_name]["ten"]
                     nguong_cho_phep = CAU_HINH_TAG[tag_name]["nguong"]
                     
                     if gia_tri > nguong_cho_phep:
-                        # TIN NHẮN ĐÃ ĐƯỢC LÀM SẠCH VÀ CHUYỂN HOÀN TOÀN SANG TIẾNG VIỆT
                         canh_bao = f"🚨 <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n⚠️ Cảnh báo: <b>{ten_chi_so}</b>\n📈 Mức hiện tại: <b>{gia_tri}</b> (Ngưỡng an toàn: {nguong_cho_phep})"
                         send_telegram_message(canh_bao)
     except Exception as e:
@@ -100,24 +102,28 @@ st.markdown("---")
 
 auto_refresh = st.checkbox("🔄 Tự động cập nhật (Real-time)", value=True)
 
-# Đọc dữ liệu từ file CSV
 try:
     df = pd.read_csv(DATA_FILE)
     if not df.empty:
         st.subheader("📊 Bảng dữ liệu thông số")
-        st.dataframe(df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(15), width="stretch")
+        
+        # ĐÃ CẬP NHẬT: Sắp xếp lật ngược thứ tự Tag (AI_2 -> AI_1 -> AI_0) và hiển thị 15 dòng
+        df_display = df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(15)
+        st.dataframe(df_display, width="stretch")
         
         st.markdown("---")
         st.write("**📥 CHỌN KHOẢNG THỜI GIAN ĐỂ TẢI DỮ LIỆU:**")
         
         col1, col2, col3 = st.columns([1, 1, 1])
         
+        now_vn = get_vietnam_time() # Lấy giờ VN để làm mốc mặc định cho bộ lọc
+        
         with col1:
-            d_start = st.date_input("Từ ngày", datetime.now() - timedelta(days=1))
+            d_start = st.date_input("Từ ngày", now_vn - timedelta(days=1))
             t_start = st.time_input("Từ giờ", dt_time(0, 0, 0))
             
         with col2:
-            d_end = st.date_input("Đến ngày", datetime.now())
+            d_end = st.date_input("Đến ngày", now_vn)
             t_end = st.time_input("Đến giờ", dt_time(23, 59, 59))
             
         dt_start = datetime.combine(d_start, t_start)

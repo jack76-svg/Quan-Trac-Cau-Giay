@@ -105,7 +105,7 @@ try:
     df = pd.read_csv(DATA_FILE)
     if not df.empty:
         st.subheader("📊 Bảng dữ liệu thông số")
-        st.dataframe(df.sort_values(by="ThoiGian", ascending=False).head(10), width="stretch")
+        st.dataframe(df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(15), width="stretch")
         
         st.markdown("---")
         st.write("**📥 CHỌN KHOẢNG THỜI GIAN ĐỂ TẢI DỮ LIỆU:**")

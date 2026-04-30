@@ -11,7 +11,13 @@ from datetime import datetime, time as dt_time, timedelta
 # --- CẤU HÌNH TELEGRAM ---
 TELEGRAM_TOKEN = "8752315179:AAEMeMcS9FizpK6zEIpw_DWJ7rCznlB0MMY"
 CHAT_ID = "6296506766"
-NGUONG_BUI_MIN = 4.0
+
+# --- TỪ ĐIỂN CẤU HÌNH TAG & NGƯỠNG CẢNH BÁO ---
+CAU_HINH_TAG = {
+    "BoardIO:AI_0": {"ten": "Bụi mịn", "nguong": 4.3},
+    "BoardIO:AI_1": {"ten": "Tiếng ồn", "nguong": 4.0},
+    "BoardIO:AI_2": {"ten": "Khí CO", "nguong": 3.0}
+}
 
 # --- CẤU HÌNH HIVEMQ CLOUD ---
 MQTT_BROKER = "089b478fa58e49308b8038acdce36015.s1.eu.hivemq.cloud"
@@ -46,17 +52,24 @@ def on_message(client, userdata, msg):
         
         if "d" in data:
             for item in data["d"]:
-                if item["tag"] == "BoardIO:AI_0": 
+                tag_name = item["tag"]
+                
+                # Tra cứu tag trong từ điển
+                if tag_name in CAU_HINH_TAG: 
                     gia_tri = float(item["value"])
                     thoi_gian = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    # Lưu dữ liệu mới vào file CSV
-                    new_data = pd.DataFrame({"ThoiGian": [thoi_gian], "Tag": [item["tag"]], "GiaTri": [gia_tri]})
+                    # 1. Lưu dữ liệu mới vào file CSV
+                    new_data = pd.DataFrame({"ThoiGian": [thoi_gian], "Tag": [tag_name], "GiaTri": [gia_tri]})
                     new_data.to_csv(DATA_FILE, mode='a', header=False, index=False)
                     
-                    # Cảnh báo Telegram
-                    if gia_tri > NGUONG_BUI_MIN:
-                        canh_bao = f"🚨 <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\nTag {item['tag']} hiện tại: <b>{gia_tri}</b> đã vượt mức ({NGUONG_BUI_MIN})."
+                    # 2. Xử lý logic cảnh báo với tin nhắn đã được tùy chỉnh
+                    ten_chi_so = CAU_HINH_TAG[tag_name]["ten"]
+                    nguong_cho_phep = CAU_HINH_TAG[tag_name]["nguong"]
+                    
+                    if gia_tri > nguong_cho_phep:
+                        # TIN NHẮN ĐÃ ĐƯỢC LÀM SẠCH VÀ CHUYỂN HOÀN TOÀN SANG TIẾNG VIỆT
+                        canh_bao = f"🚨 <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n⚠️ Cảnh báo: <b>{ten_chi_so}</b>\n📈 Mức hiện tại: <b>{gia_tri}</b> (Ngưỡng an toàn: {nguong_cho_phep})"
                         send_telegram_message(canh_bao)
     except Exception as e:
         pass
@@ -92,13 +105,11 @@ try:
     df = pd.read_csv(DATA_FILE)
     if not df.empty:
         st.subheader("📊 Bảng dữ liệu thông số")
-        # PHẦN HIỂN THỊ: Giữ nguyên chỉ hiện 10 dòng mới nhất
         st.dataframe(df.sort_values(by="ThoiGian", ascending=False).head(10), width="stretch")
         
         st.markdown("---")
         st.write("**📥 CHỌN KHOẢNG THỜI GIAN ĐỂ TẢI DỮ LIỆU:**")
         
-        # PHẦN TẢI DỮ LIỆU: Chia làm 3 cột (Bắt đầu - Kết thúc - Nút tải)
         col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
@@ -109,20 +120,17 @@ try:
             d_end = st.date_input("Đến ngày", datetime.now())
             t_end = st.time_input("Đến giờ", dt_time(23, 59, 59))
             
-        # Ghép ngày và giờ lại để lọc
         dt_start = datetime.combine(d_start, t_start)
         dt_end = datetime.combine(d_end, t_end)
         
-        # Lọc dữ liệu theo thời gian chọn
         df['ThoiGian_dt'] = pd.to_datetime(df['ThoiGian'])
         df_filtered = df[(df['ThoiGian_dt'] >= dt_start) & (df['ThoiGian_dt'] <= dt_end)]
-        df_clean = df_filtered.drop(columns=['ThoiGian_dt']) # Dọn sạch cột phụ trước khi tải
+        df_clean = df_filtered.drop(columns=['ThoiGian_dt']) 
         
         with col3:
-            st.markdown("<br><br>", unsafe_allow_html=True) # Xuống dòng để căn nút bấm ngang hàng
+            st.markdown("<br><br>", unsafe_allow_html=True) 
             csv_data = df_clean.to_csv(index=False).encode('utf-8')
             
-            # Nút tải sẽ hiển thị luôn số lượng dòng tìm được
             st.download_button(
                 label=f"📥 Tải dữ liệu ({len(df_clean)} dòng)",
                 data=csv_data,

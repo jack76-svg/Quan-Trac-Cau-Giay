@@ -258,7 +258,8 @@ try:
         df_display = df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(3)
         st.dataframe(df_display, width="stretch")
         
-        st.write("**📥 CHỌN KHOẢNG THỜI GIAN ĐỂ TẢI TOÀN BỘ DỮ LIỆU:**")
+        # --- PHẦN TRA CỨU LỊCH SỬ VÀ TẢI DỮ LIỆU ---
+        st.write("**🕰️ TRA CỨU LỊCH SỬ VÀ TẢI DỮ LIỆU:**")
         col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
         now_vn = get_vietnam_time() 
         
@@ -273,24 +274,39 @@ try:
         dt_start = datetime.combine(d_start, t_start)
         dt_end = datetime.combine(d_end, t_end)
         
+        # Lọc dữ liệu theo thời gian
         df['ThoiGian_dt'] = pd.to_datetime(df['ThoiGian'])
         df_filtered = df[(df['ThoiGian_dt'] >= dt_start) & (df['ThoiGian_dt'] <= dt_end)]
         df_clean = df_filtered.drop(columns=['ThoiGian_dt']) 
         
+        # 1. VẼ BIỂU ĐỒ LỊCH SỬ DỰA TRÊN THỜI GIAN ĐÃ LỌC
+        if not df_filtered.empty:
+            st.markdown(f"**📉 Biểu đồ dữ liệu từ `{dt_start}` đến `{dt_end}`**")
+            fig_hist = px.line(df_filtered, x="ThoiGian", y="GiaTri", color="Tag", markers=True)
+            
+            fig_hist.for_each_trace(lambda t: t.update(name = newnames.get(t.name, t.name),
+                                                    legendgroup = newnames.get(t.name, t.name),
+                                                    hovertemplate = t.hovertemplate.replace(t.name, newnames.get(t.name, t.name))))
+            fig_hist.update_layout(height=400, margin=dict(l=0, r=0, t=10, b=0), xaxis_title="Thời gian", yaxis_title="Giá trị đo")
+            st.plotly_chart(fig_hist, use_container_width=True)
+        else:
+            st.warning("Không có dữ liệu trong khoảng thời gian bạn chọn!")
+
+        # 2. NÚT TẢI FILE CSV
         with col_f3:
             st.markdown("<br><br>", unsafe_allow_html=True) 
-            csv_data = df_clean.to_csv(index=False).encode('utf-8')
-            
-            st.download_button(
-                label=f"📥 Tải dữ liệu ({len(df_clean)} dòng)",
-                data=csv_data,
-                file_name=f"Data_CauGiay_{d_start}_to_{d_end}.csv",
-                mime="text/csv",
-            )
+            if not df_clean.empty:
+                csv_data = df_clean.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label=f"📥 Tải dữ liệu ({len(df_clean)} dòng)",
+                    data=csv_data,
+                    file_name=f"Data_CauGiay_{d_start}_to_{d_end}.csv",
+                    mime="text/csv",
+                )
     else:
         st.info("Hệ thống đang chờ nhận dữ liệu từ thiết bị ADAM...")
 except Exception as e:
-    st.error("Chưa có file dữ liệu hoặc lỗi đọc file.")
+    st.error(f"Chưa có file dữ liệu hoặc lỗi: {e}")
 
 if auto_refresh:
     time.sleep(2)  

@@ -1,4 +1,5 @@
 streamlit
 paho-mqtt
-pandas
 requests
+pandas
+plotly

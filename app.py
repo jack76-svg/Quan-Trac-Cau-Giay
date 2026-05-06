@@ -4,9 +4,9 @@ import json
 import requests
 import pandas as pd
 import os
-import time      
-import random  
-import math  
+import time
+import random
+import math
 from datetime import datetime, time as dt_time, timedelta, timezone
 import plotly.graph_objects as go
 import plotly.express as px
@@ -14,6 +14,10 @@ import plotly.express as px
 # --- CẤU HÌNH TELEGRAM ---
 TELEGRAM_TOKEN = "8752315179:AAEMeMcS9FizpK6zEIpw_DWJ7rCznlB0MMY"
 CHAT_ID = "6296506766"
+
+# --- CẤU HÌNH CHỐNG SPAM TELEGRAM ---
+THOI_GIAN_NGU_DONG = 1 # Thời gian ngủ đông tính bằng phút
+thoi_gian_canh_bao_cuoi = {} # Bộ nhớ lưu thời gian gửi tin nhắn gần nhất của từng Tag
 
 # --- TỪ ĐIỂN CẤU HÌNH TAG & CÁC CẤP ĐỘ CẢNH BÁO ---
 CAU_HINH_TAG = {
@@ -92,21 +96,32 @@ def on_message(client, userdata, msg):
                     gia_tri = float(item["value"])
                     thoi_gian = get_vietnam_time().strftime("%Y-%m-%d %H:%M:%S")
                     
+                    # 1. LƯU VÀO FILE CSV CỤC BỘ
                     new_data = pd.DataFrame({"ThoiGian": [thoi_gian], "Tag": [tag_name], "GiaTri": [gia_tri]})
                     new_data.to_csv(DATA_FILE, mode='a', header=False, index=False)
                     
+                    # 2. KIỂM TRA NGƯỠNG VÀ CẢNH BÁO TELEGRAM (CÓ TÍNH NĂNG NGỦ ĐÔNG)
                     ten_chi_so = CAU_HINH_TAG[tag_name]["ten"]
+                    thoi_gian_hien_tai = get_vietnam_time()
                     
                     for cap in CAU_HINH_TAG[tag_name]["cap_do"]:
                         if gia_tri >= cap["nguong"]:
                             if cap["bao_dong"]:
-                                canh_bao = (
-                                    f"{cap['icon']} <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n"
-                                    f"⚠️ Thông số: <b>{ten_chi_so}</b>\n"
-                                    f"📈 Mức đo được: <b>{gia_tri}</b>\n"
-                                    f"🛑 Đánh giá: <b>{cap['muc']}</b>"
-                                )
-                                send_telegram_message(canh_bao)
+                                # Kiểm tra xem Tag này đã qua thời gian ngủ đông chưa (1 phút)
+                                if tag_name not in thoi_gian_canh_bao_cuoi or \
+                                   (thoi_gian_hien_tai - thoi_gian_canh_bao_cuoi[tag_name]).total_seconds() > (THOI_GIAN_NGU_DONG * 60):
+                                    
+                                    canh_bao = (
+                                        f"{cap['icon']} <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n"
+                                        f"⚠️ Thông số: <b>{ten_chi_so}</b>\n"
+                                        f"📈 Mức đo được: <b>{gia_tri}</b>\n"
+                                        f"🛑 Đánh giá: <b>{cap['muc']}</b>\n"
+                                        f"⏳ <i>(Hệ thống sẽ tạm ngưng cảnh báo chỉ số này trong {THOI_GIAN_NGU_DONG} phút)</i>"
+                                    )
+                                    send_telegram_message(canh_bao)
+                                    
+                                    # Ghi nhớ lại thời gian vừa gửi tin nhắn để bắt đầu đếm ngược
+                                    thoi_gian_canh_bao_cuoi[tag_name] = thoi_gian_hien_tai
                             break 
     except Exception as e:
         pass
@@ -162,18 +177,17 @@ try:
                 sort=False, 
                 direction='clockwise',
                 rotation=0,
-                domain=dict(x=[0, 1], y=[0, 1]) # Ép chặt khung hình
+                domain=dict(x=[0, 1], y=[0, 1]) 
             ))
             
-            # 2. CÂY KIM (Lớp trên: Thực chất là một lát cắt cực mỏng của Pie thứ 2)
+            # 2. CÂY KIM
             total_range = sum(values)
             v_clamped = min(max(value, 0), total_range)
-            needle_size = total_range * 0.008 # Độ mỏng của kim = 0.8% tổng dải
+            needle_size = total_range * 0.008 
             
             val_before = v_clamped - needle_size / 2
             val_after = total_range - v_clamped - needle_size / 2
             
-            # Xử lý ngoại lệ nếu kim nằm kịch ở vạch số 0 hoặc vạch cuối cùng
             if val_before < 0:
                 val_after += val_before
                 val_before = 0
@@ -184,14 +198,14 @@ try:
             fig.add_trace(go.Pie(
                 labels=['', f'Giá trị hiện tại: {value}', ''],
                 values=[val_before, needle_size, val_after],
-                hole=0.45, # Kim đâm từ sát chữ số ra tận mép ngoài vòng tròn
-                marker_colors=['rgba(0,0,0,0)', '#2c3e50', 'rgba(0,0,0,0)'], # Chỉ hiện mỗi màu của lát cắt kim
+                hole=0.45, 
+                marker_colors=['rgba(0,0,0,0)', '#2c3e50', 'rgba(0,0,0,0)'], 
                 textinfo='none',
                 hoverinfo='label',
                 sort=False,
                 direction='clockwise',
                 rotation=0,
-                domain=dict(x=[0, 1], y=[0, 1]) # Ép chặt vào cùng khung với vòng Donut
+                domain=dict(x=[0, 1], y=[0, 1]) 
             ))
             
             # 3. TEXT CHỮ SỐ Ở GIỮA
@@ -254,7 +268,7 @@ try:
 
         st.markdown("---")
 
-        st.subheader("📊 Dữ liệu Log ")
+        st.subheader("📊 Dữ liệu Log (3 dòng mới nhất)")
         df_display = df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(3)
         st.dataframe(df_display, width="stretch")
         

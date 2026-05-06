@@ -99,7 +99,6 @@ def on_message(client, userdata, msg):
                     
                     for cap in CAU_HINH_TAG[tag_name]["cap_do"]:
                         if gia_tri >= cap["nguong"]:
-                            # Nếu nằm ở mức an toàn (bao_dong = False), lệnh if này sẽ bỏ qua việc gửi tin nhắn
                             if cap["bao_dong"]:
                                 canh_bao = (
                                     f"{cap['icon']} <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n"
@@ -152,7 +151,7 @@ try:
             
             fig = go.Figure()
             
-            # VÒNG TRÒN DẢI MÀU
+            # 1. VÒNG TRÒN DẢI MÀU (Lớp dưới)
             fig.add_trace(go.Pie(
                 labels=labels, 
                 values=values, 
@@ -162,31 +161,41 @@ try:
                 hoverinfo='label',
                 sort=False, 
                 direction='clockwise',
-                rotation=0 
+                rotation=0,
+                domain=dict(x=[0, 1], y=[0, 1]) # Ép chặt khung hình
             ))
             
-            # TÍNH TOÁN GÓC QUAY CHO KIM
+            # 2. CÂY KIM (Lớp trên: Thực chất là một lát cắt cực mỏng của Pie thứ 2)
             total_range = sum(values)
             v_clamped = min(max(value, 0), total_range)
-            theta_deg = (v_clamped / total_range) * 360
+            needle_size = total_range * 0.008 # Độ mỏng của kim = 0.8% tổng dải
             
-            # CÂY KIM (Sử dụng hệ tọa độ Polar để khóa cứng kim vào vòng tròn)
-            fig.add_trace(go.Scatterpolar(
-                r=[0.58, 0.9], # Tọa độ r=0.58 là gốc kim (sát chữ số), r=0.9 là đỉnh kim (nằm trong dải màu)
-                theta=[theta_deg, theta_deg],
-                mode='lines+markers',
-                marker=dict(size=[12, 0], color="#2c3e50"), # Tạo một chốt tròn nhỏ ở gốc kim
-                line=dict(color="#2c3e50", width=5),
-                showlegend=False,
-                hoverinfo='none'
+            val_before = v_clamped - needle_size / 2
+            val_after = total_range - v_clamped - needle_size / 2
+            
+            # Xử lý ngoại lệ nếu kim nằm kịch ở vạch số 0 hoặc vạch cuối cùng
+            if val_before < 0:
+                val_after += val_before
+                val_before = 0
+            elif val_after < 0:
+                val_before += val_after
+                val_after = 0
+                
+            fig.add_trace(go.Pie(
+                labels=['', f'Giá trị hiện tại: {value}', ''],
+                values=[val_before, needle_size, val_after],
+                hole=0.45, # Kim đâm từ sát chữ số ra tận mép ngoài vòng tròn
+                marker_colors=['rgba(0,0,0,0)', '#2c3e50', 'rgba(0,0,0,0)'], # Chỉ hiện mỗi màu của lát cắt kim
+                textinfo='none',
+                hoverinfo='label',
+                sort=False,
+                direction='clockwise',
+                rotation=0,
+                domain=dict(x=[0, 1], y=[0, 1]) # Ép chặt vào cùng khung với vòng Donut
             ))
             
+            # 3. TEXT CHỮ SỐ Ở GIỮA
             fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(range=[0, 1], visible=False), # Khớp hoàn toàn với bán kính của Pie chart
-                    angularaxis=dict(direction='clockwise', rotation=90, visible=False), # Khớp hoàn toàn với góc của Pie chart
-                    bgcolor='rgba(0,0,0,0)' # Nền trong suốt
-                ),
                 showlegend=False,
                 margin=dict(l=20, r=20, t=50, b=20),
                 height=350, 

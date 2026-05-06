@@ -5,18 +5,50 @@ import requests
 import pandas as pd
 import os
 import time      
-import random    
-from datetime import datetime, time as dt_time, timedelta, timezone # Khai báo thêm timezone
+import random  
+import math  
+from datetime import datetime, time as dt_time, timedelta, timezone
+import plotly.graph_objects as go
+import plotly.express as px
 
 # --- CẤU HÌNH TELEGRAM ---
 TELEGRAM_TOKEN = "8752315179:AAEMeMcS9FizpK6zEIpw_DWJ7rCznlB0MMY"
 CHAT_ID = "6296506766"
 
-# --- TỪ ĐIỂN CẤU HÌNH TAG & NGƯỠNG CẢNH BÁO ---
+# --- TỪ ĐIỂN CẤU HÌNH TAG & CÁC CẤP ĐỘ CẢNH BÁO ---
 CAU_HINH_TAG = {
-    "BoardIO:AI_0": {"ten": "Bụi mịn", "nguong": 4.3},
-    "BoardIO:AI_1": {"ten": "Tiếng ồn", "nguong": 4.0},
-    "BoardIO:AI_2": {"ten": "Khí CO", "nguong": 3.0}
+    "BoardIO:AI_0": {
+        "ten": "Bụi mịn",
+        "don_vi": "AQI", 
+        "cap_do": [
+            {"nguong": 200, "muc": "Rất có hại (200-300)", "icon": "🆘", "bao_dong": True, "mau": "#9b59b6", "size": 100}, 
+            {"nguong": 150, "muc": "Có hại (151-200)", "icon": "🔴", "bao_dong": True, "mau": "#e74c3c", "size": 50},  
+            {"nguong": 100, "muc": "Kém (101-150)", "icon": "🟠", "bao_dong": True, "mau": "#e67e22", "size": 50},  
+            {"nguong": 50,  "muc": "Trung bình (51-100)", "icon": "🟡", "bao_dong": True, "mau": "#f1c40f", "size": 50},  
+            {"nguong": 0,   "muc": "Tốt (0-50)", "icon": "🟢", "bao_dong": False, "mau": "#2ecc71", "size": 50}   
+        ]
+    },
+    "BoardIO:AI_1": {
+        "ten": "Tiếng ồn",
+        "don_vi": "dB",
+        "cap_do": [
+            {"nguong": 90, "muc": "Suy giảm thính lực (>90)", "icon": "🆘", "bao_dong": True, "mau": "#9b59b6", "size": 30}, 
+            {"nguong": 80, "muc": "Nguy hiểm (80-90)", "icon": "🔴", "bao_dong": True, "mau": "#e74c3c", "size": 10}, 
+            {"nguong": 70, "muc": "Khó chịu (70-80)", "icon": "🟠", "bao_dong": True, "mau": "#e67e22", "size": 10}, 
+            {"nguong": 0,  "muc": "An toàn (<70)", "icon": "🟢", "bao_dong": False, "mau": "#2ecc71", "size": 70}  
+        ]
+    },
+    "BoardIO:AI_2": {
+        "ten": "Khí CO",
+        "don_vi": "ppm",
+        "cap_do": [
+            {"nguong": 800, "muc": "Nguy hiểm tính mạng (>800)", "icon": "🆘", "bao_dong": True, "mau": "#9b59b6", "size": 200}, 
+            {"nguong": 400, "muc": "Nguy hiểm (400-800)", "icon": "🔴", "bao_dong": True, "mau": "#e74c3c", "size": 400}, 
+            {"nguong": 100, "muc": "Bắt đầu ngộ độc (100-400)", "icon": "🟠", "bao_dong": True, "mau": "#e67e22", "size": 300}, 
+            {"nguong": 50,  "muc": "Mức cảnh giác (50-100)", "icon": "🟡", "bao_dong": True, "mau": "#f1c40f", "size": 50},  
+            {"nguong": 0,   "muc": "An toàn (0-50)", "icon": "🟢", "bao_dong": False, "mau": "#2ecc71", "size": 50}   
+        ]
+    }
 }
 
 # --- CẤU HÌNH HIVEMQ CLOUD ---
@@ -28,13 +60,11 @@ MQTT_TOPIC = "data/R"
 
 DATA_FILE = "data_log.csv"
 
-# Khởi tạo file CSV nếu chưa có
 if not os.path.exists(DATA_FILE):
     df_init = pd.DataFrame(columns=["ThoiGian", "Tag", "GiaTri"])
     df_init.to_csv(DATA_FILE, index=False)
 
 def get_vietnam_time():
-    """Hàm lấy thời gian chuẩn xác theo múi giờ Việt Nam (GMT+7)"""
     return datetime.now(timezone(timedelta(hours=7)))
 
 def send_telegram_message(message):
@@ -60,23 +90,28 @@ def on_message(client, userdata, msg):
                 
                 if tag_name in CAU_HINH_TAG: 
                     gia_tri = float(item["value"])
-                    
-                    # SỬ DỤNG GIỜ VIỆT NAM ĐỂ GHI VÀO FILE
                     thoi_gian = get_vietnam_time().strftime("%Y-%m-%d %H:%M:%S")
                     
                     new_data = pd.DataFrame({"ThoiGian": [thoi_gian], "Tag": [tag_name], "GiaTri": [gia_tri]})
                     new_data.to_csv(DATA_FILE, mode='a', header=False, index=False)
                     
                     ten_chi_so = CAU_HINH_TAG[tag_name]["ten"]
-                    nguong_cho_phep = CAU_HINH_TAG[tag_name]["nguong"]
                     
-                    if gia_tri > nguong_cho_phep:
-                        canh_bao = f"🚨 <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n⚠️ Cảnh báo: <b>{ten_chi_so}</b>\n📈 Mức hiện tại: <b>{gia_tri}</b> (Ngưỡng an toàn: {nguong_cho_phep})"
-                        send_telegram_message(canh_bao)
+                    for cap in CAU_HINH_TAG[tag_name]["cap_do"]:
+                        if gia_tri >= cap["nguong"]:
+                            # Nếu nằm ở mức an toàn (bao_dong = False), lệnh if này sẽ bỏ qua việc gửi tin nhắn
+                            if cap["bao_dong"]:
+                                canh_bao = (
+                                    f"{cap['icon']} <b>BÁO ĐỘNG NHÀ GA CẦU GIẤY!</b>\n"
+                                    f"⚠️ Thông số: <b>{ten_chi_so}</b>\n"
+                                    f"📈 Mức đo được: <b>{gia_tri}</b>\n"
+                                    f"🛑 Đánh giá: <b>{cap['muc']}</b>"
+                                )
+                                send_telegram_message(canh_bao)
+                            break 
     except Exception as e:
         pass
 
-# --- THIẾT LẬP MQTT CHẠY NGẦM ---
 @st.cache_resource
 def start_mqtt():
     client_id = f"Web_CauGiay_{random.randint(1000, 9999)}"
@@ -96,7 +131,6 @@ mqtt_client = start_mqtt()
 # ==========================================
 
 st.set_page_config(page_title="Quan Trắc Nhà Ga Cầu Giấy", layout="wide")
-
 st.title("🚉 Hệ thống quan trắc nhà ga Cầu Giấy")
 st.markdown("---")
 
@@ -105,24 +139,125 @@ auto_refresh = st.checkbox("🔄 Tự động cập nhật (Real-time)", value=T
 try:
     df = pd.read_csv(DATA_FILE)
     if not df.empty:
-        st.subheader("📊 Bảng dữ liệu thông số")
-        
-        # ĐÃ CẬP NHẬT: Sắp xếp lật ngược thứ tự Tag (AI_2 -> AI_1 -> AI_0) và hiển thị 15 dòng
-        df_display = df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(15)
-        st.dataframe(df_display, width="stretch")
-        
-        st.markdown("---")
-        st.write("**📥 CHỌN KHOẢNG THỜI GIAN ĐỂ TẢI DỮ LIỆU:**")
-        
-        col1, col2, col3 = st.columns([1, 1, 1])
-        
-        now_vn = get_vietnam_time() # Lấy giờ VN để làm mốc mặc định cho bộ lọc
+        latest_data = {}
+        latest_df = df.sort_values('ThoiGian').groupby('Tag').tail(1)
+        for _, row in latest_df.iterrows():
+            latest_data[row['Tag']] = row['GiaTri']
+
+        def draw_donut(value, title, unit, cap_do_list):
+            reversed_cap = cap_do_list[::-1] 
+            labels = [c["muc"] for c in reversed_cap]
+            values = [c["size"] for c in reversed_cap]
+            colors = [c["mau"] for c in reversed_cap]
+            
+            fig = go.Figure()
+            
+            # VÒNG TRÒN DẢI MÀU
+            fig.add_trace(go.Pie(
+                labels=labels, 
+                values=values, 
+                hole=0.55, 
+                marker_colors=colors,
+                textinfo='none', 
+                hoverinfo='label',
+                sort=False, 
+                direction='clockwise',
+                rotation=0 
+            ))
+            
+            # TÍNH TOÁN GÓC QUAY CHO KIM
+            total_range = sum(values)
+            v_clamped = min(max(value, 0), total_range)
+            theta_deg = (v_clamped / total_range) * 360
+            
+            # CÂY KIM (Sử dụng hệ tọa độ Polar để khóa cứng kim vào vòng tròn)
+            fig.add_trace(go.Scatterpolar(
+                r=[0.58, 0.9], # Tọa độ r=0.58 là gốc kim (sát chữ số), r=0.9 là đỉnh kim (nằm trong dải màu)
+                theta=[theta_deg, theta_deg],
+                mode='lines+markers',
+                marker=dict(size=[12, 0], color="#2c3e50"), # Tạo một chốt tròn nhỏ ở gốc kim
+                line=dict(color="#2c3e50", width=5),
+                showlegend=False,
+                hoverinfo='none'
+            ))
+            
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(range=[0, 1], visible=False), # Khớp hoàn toàn với bán kính của Pie chart
+                    angularaxis=dict(direction='clockwise', rotation=90, visible=False), # Khớp hoàn toàn với góc của Pie chart
+                    bgcolor='rgba(0,0,0,0)' # Nền trong suốt
+                ),
+                showlegend=False,
+                margin=dict(l=20, r=20, t=50, b=20),
+                height=350, 
+                title={'text': title, 'x': 0.5, 'xanchor': 'center', 'font': {'size': 24, 'color': '#333'}},
+                annotations=[dict(
+                    text=f"<b style='font-size:55px; color:#333;'>{value}</b><br><span style='font-size:22px; color:#666;'>{unit}</span>", 
+                    x=0.5, y=0.5, 
+                    showarrow=False
+                )]
+            )
+            return fig
+
+        def draw_legend(cap_do_list):
+            html = "<div style='font-size: 22px; margin-top: 15px; padding-left: 20px;'>" 
+            for c in cap_do_list: 
+                html += f"<div style='display: flex; align-items: center; margin-bottom: 12px;'>"
+                html += f"<div style='width: 45px; height: 22px; background-color: {c['mau']}; margin-right: 15px; border-radius: 4px;'></div>"
+                html += f"<span style='color: #444; font-weight: 600;'>{c['muc']}</span>"
+                html += f"</div>"
+            html += "</div>"
+            st.markdown(html, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns(3)
         
         with col1:
+            val_bui = latest_data.get("BoardIO:AI_0", 0)
+            tag_data = CAU_HINH_TAG["BoardIO:AI_0"]
+            st.plotly_chart(draw_donut(val_bui, tag_data["ten"].upper(), tag_data["don_vi"], tag_data["cap_do"]), use_container_width=True)
+            draw_legend(tag_data["cap_do"])
+
+        with col2:
+            val_on = latest_data.get("BoardIO:AI_1", 0)
+            tag_data = CAU_HINH_TAG["BoardIO:AI_1"]
+            st.plotly_chart(draw_donut(val_on, tag_data["ten"].upper(), tag_data["don_vi"], tag_data["cap_do"]), use_container_width=True)
+            draw_legend(tag_data["cap_do"])
+
+        with col3:
+            val_co = latest_data.get("BoardIO:AI_2", 0)
+            tag_data = CAU_HINH_TAG["BoardIO:AI_2"]
+            st.plotly_chart(draw_donut(val_co, tag_data["ten"].upper(), tag_data["don_vi"], tag_data["cap_do"]), use_container_width=True)
+            draw_legend(tag_data["cap_do"])
+
+        st.markdown("---")
+
+        st.subheader("📈 Biểu đồ biến thiên thời gian thực")
+        df_chart = df.tail(60) 
+        fig_line = px.line(df_chart, x="ThoiGian", y="GiaTri", color="Tag", markers=True)
+        
+        newnames = {'BoardIO:AI_0':'Bụi mịn', 'BoardIO:AI_1': 'Tiếng ồn', 'BoardIO:AI_2': 'Khí CO'}
+        fig_line.for_each_trace(lambda t: t.update(name = newnames[t.name],
+                                                legendgroup = newnames[t.name],
+                                                hovertemplate = t.hovertemplate.replace(t.name, newnames[t.name])))
+        
+        fig_line.update_layout(height=400, margin=dict(l=0, r=0, t=30, b=0), xaxis_title="Thời gian", yaxis_title="Giá trị đo")
+        st.plotly_chart(fig_line, use_container_width=True)
+
+        st.markdown("---")
+
+        st.subheader("📊 Dữ liệu Log (3 dòng mới nhất)")
+        df_display = df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(3)
+        st.dataframe(df_display, width="stretch")
+        
+        st.write("**📥 CHỌN KHOẢNG THỜI GIAN ĐỂ TẢI TOÀN BỘ DỮ LIỆU:**")
+        col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
+        now_vn = get_vietnam_time() 
+        
+        with col_f1:
             d_start = st.date_input("Từ ngày", now_vn - timedelta(days=1))
             t_start = st.time_input("Từ giờ", dt_time(0, 0, 0))
             
-        with col2:
+        with col_f2:
             d_end = st.date_input("Đến ngày", now_vn)
             t_end = st.time_input("Đến giờ", dt_time(23, 59, 59))
             
@@ -133,7 +268,7 @@ try:
         df_filtered = df[(df['ThoiGian_dt'] >= dt_start) & (df['ThoiGian_dt'] <= dt_end)]
         df_clean = df_filtered.drop(columns=['ThoiGian_dt']) 
         
-        with col3:
+        with col_f3:
             st.markdown("<br><br>", unsafe_allow_html=True) 
             csv_data = df_clean.to_csv(index=False).encode('utf-8')
             
@@ -148,9 +283,6 @@ try:
 except Exception as e:
     st.error("Chưa có file dữ liệu hoặc lỗi đọc file.")
 
-# ==========================================
-# --- VÒNG LẶP THỜI GIAN THỰC ---
-# ==========================================
 if auto_refresh:
     time.sleep(2)  
     st.rerun()

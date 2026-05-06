@@ -254,7 +254,7 @@ try:
 
         st.markdown("---")
 
-        st.subheader("📊 Dữ liệu Log (3 dòng mới nhất)")
+        st.subheader("📊 Dữ liệu Log ")
         df_display = df.sort_values(by=["ThoiGian", "Tag"], ascending=[False, False]).head(3)
         st.dataframe(df_display, width="stretch")
         

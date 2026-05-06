@@ -241,7 +241,7 @@ try:
         st.markdown("---")
 
         st.subheader("📈 Biểu đồ biến thiên thời gian thực")
-        df_chart = df.tail(300) 
+        df_chart = df.tail(100) 
         fig_line = px.line(df_chart, x="ThoiGian", y="GiaTri", color="Tag", markers=True)
         
         newnames = {'BoardIO:AI_0':'Bụi mịn', 'BoardIO:AI_1': 'Tiếng ồn', 'BoardIO:AI_2': 'Khí CO'}
